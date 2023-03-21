@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
-import datetime
+from datetime import *
+from scipy import interpolate, stats
 
 
+#吴老师自己从头开始写的
 def NDF(x):
     result = np.exp(-x * x / 2) / np.sqrt(8 * np.arctan(1))
     return result
@@ -61,7 +63,7 @@ def GBSOption(TypeFlag, S, X, Time, r, b, sigma, title=None, description=None):
     if title is None:
         title = "Black Scholes Option Valuation"
     if description is None:
-        description = str(datetime.datetime.now())
+        description = str(datetime.now())
     fOPTION = pd.Series({'param': param, 'price': result,
                          'title': title, 'description': description}, name='fOPTION')
     return fOPTION
@@ -156,7 +158,7 @@ def GBSCofC(TypeFlag, S, X, Time, r, b, sigma):
 
 
 def GBSCharacteristics(TypeFlag, S, X, Time, r, b, sigma):
-    premium = GBSOption(TypeFlag, S, X, Time, r, b, sigma)['result']
+    premium = GBSOption(TypeFlag, S, X, Time, r, b, sigma)['price']
     delta = GBSGreeks("Delta", TypeFlag, S, X, Time, r, b, sigma)
     theta = GBSGreeks("Theta", TypeFlag, S, X, Time, r, b, sigma)
     vega = GBSGreeks("Vega", TypeFlag, S, X, Time, r, b, sigma)
@@ -181,17 +183,30 @@ def Black76Option(TypeFlag, FT, X, Time, r, sigma, title=None, description=None)
     if title is None:
         title = "Black 76 Option Valuation"
     if description is None:
-        description = str(datetime.datetime.now())
+        description = str(datetime.now())
     fOPTION = pd.Series({'param': param, 'price': result,
                          'title': title, 'description': description}, name='fOPTION')
     return fOPTION
 
 
 def GBSVolatility(price, TypeFlag, S, X, Time, r, b):
+    # max = 10000
+    # precsion = 0.00001
+    # sigma = 0.5
+    # for i in range(max):
+    #     c_est = GBSOption(TypeFlag=TypeFlag, S=S, X=X, Time=Time,
+    #                       r=r, b=b, sigma=sigma)['price']
+    #     vega = GBSVega(S=S, X=X, Time=Time, r=r, b=b, sigma=sigma)
+    #     diff = price - c_est
+    #     if abs(diff) < precsion:
+    #         return sigma
+    #     sigma = sigma + diff/vega
+    # return sigma
     c_est = 0
-    top, floor, sigma = 10, -10, 1
+    top, floor= 10, 0
+    sigma = 0.5
     count = 0
-    while abs(price - c_est) > 0.000001:
+    while abs(price - c_est) > 0.0001:
         c_est = GBSOption(TypeFlag=TypeFlag, S=S, X=X, Time=Time,
                           r=r, b=b, sigma=sigma)['price']
         count += 1
@@ -204,3 +219,65 @@ def GBSVolatility(price, TypeFlag, S, X, Time, r, b):
             top = sigma
         sigma = (top + floor) / 2
     return sigma
+
+
+##BSM基础计算公式
+##Numpy完成的基础部分
+def bsm_price(sigma, typeflag, underlying, strike, t2exp, r):
+    d1 = (np.log(underlying / strike) + (r + sigma * sigma / 2) * t2exp)\
+         / (sigma * np.sqrt(t2exp))
+    d2 = (np.log(underlying / strike) + (r - sigma * sigma / 2) * t2exp)\
+         / (sigma * np.sqrt(t2exp))
+    if typeflag == "c":
+        price = underlying * stats.norm.cdf(d1) \
+                - strike * np.exp(-r * t2exp) * stats.norm.cdf(d2)
+    else:
+        price = strike * np.exp(-r * t2exp) * stats.norm.cdf(-d2) \
+                - underlying * stats.norm.cdf(-d1)
+    return price
+
+
+def bsm_volatility(price, typeflag, underlying, strike, t2exp, r):
+    # 包含二分法/积分法
+    # 当前方法为：二分法
+    sigma = 5
+    top, floor = 100, 0
+    for i in range(10000):
+        c_est = bsm_price(sigma, typeflag, underlying, strike, t2exp, r)
+        # vega = bsm_vega(sigma, underlying, strike, t2exp, r)
+        diff = price - c_est
+        if abs(diff) < 0.00001:
+            return sigma
+        else:
+            # sigma = sigma + diff / vega
+            if diff > 0:
+                floor = sigma
+            else:
+                top = sigma
+            sigma = (top + floor) / 2
+    return sigma
+
+
+def bsm_delta(sigma, typeflag, underlying, strike, t2exp, r):
+    d1 = (np.log(underlying / strike) + (r + sigma * sigma / 2) * t2exp)\
+         / (sigma * np.sqrt(t2exp))
+    if typeflag == "c":
+        delta = np.exp(-r * t2exp) * stats.norm.cdf(d1)
+    else:
+        delta = np.exp(-r * t2exp) * (stats.norm.cdf(d1) - 1)
+    return delta
+
+
+def bsm_gamma(sigma, underlying, strike, t2exp, r):
+    d1 = (np.log(underlying / strike) + (r + sigma * sigma / 2) * t2exp)\
+         / (sigma * np.sqrt(t2exp))
+    gamma = (np.exp(-r * t2exp) * stats.norm.pdf(d1) /
+             (underlying * sigma * np.sqrt(t2exp)))
+    return gamma
+
+
+def bsm_vega(sigma, underlying, strike, t2exp, r):
+    d1 = (np.log(underlying / strike) + (r + sigma * sigma / 2) * t2exp)\
+         / (sigma * np.sqrt(t2exp))
+    vega = underlying * np.exp(-r * t2exp) * stats.norm.pdf(d1) * np.sqrt(t2exp)
+    return vega
